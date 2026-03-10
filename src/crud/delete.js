@@ -73,6 +73,12 @@ async function cancelarOrden(ordenId) {
       console.log('Comprobante PDF eliminado de GridFS');
     }
 
+    // Liberar la mesa antes de eliminar la orden
+    await db.collection('restaurantes').updateOne(
+      { _id: orden.restaurante_id, 'mesas.numero': orden.numero_mesa },
+      { $set: { 'mesas.$.disponible': true } }
+    );
+
     // Eliminamos la orden de la colección
     const result = await db.collection('ordenes').deleteOne({ _id: ordenId });
     console.log('Orden cancelada y eliminada correctamente');

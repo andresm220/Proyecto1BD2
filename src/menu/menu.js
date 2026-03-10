@@ -198,7 +198,7 @@ async function menuCliente() {
         case '2': {
           const rest = await obtenerRestaurante();
           if (!rest) break;
-          const cat = await preguntar('  Categoria (entrada/plato_fuerte/postre/bebida): ');
+          const cat = await preguntar('  Categoria (entrada/plato_fuerte/postre/bebida/todo): ');
           await menuPorCategoria(rest._id, cat.trim());
           break;
         }
@@ -261,8 +261,7 @@ async function menuMesero() {
     console.log('  4. Cerrar pedido (pagar + PDF + liberar mesa)');
     console.log('  5. Ver menu del restaurante');
     console.log('  6. Agregar item a orden existente ($push)');
-    console.log('  7. Registrar cambio de estado en historial ($push)');
-    console.log('  8. Cancelar orden (liberar mesa)');
+    console.log('  7. Cancelar orden (liberar mesa)');
     console.log('  0. Cerrar sesion');
 
     const op = (await preguntar('\n  Opcion: ')).trim();
@@ -277,8 +276,12 @@ async function menuMesero() {
         case '2': {
           const orden = await obtenerOrden();
           if (!orden) break;
-          const estado = await preguntar('  Nuevo estado (pendiente/en_preparacion/servido/pagado/cancelado): ');
-          await actualizarEstadoOrden(orden._id, estado.trim(), sesion.usuario._id);
+          const estado = (await preguntar('  Nuevo estado (pendiente/en_preparacion/servido): ')).trim();
+          if (['pagado', 'cancelado'].includes(estado)) {
+            console.log('  Para pagar usa la opcion 4. Para cancelar usa la opcion 7.');
+            break;
+          }
+          await actualizarEstadoOrden(orden._id, estado, sesion.usuario._id);
           break;
         }
         case '3': {
@@ -322,7 +325,7 @@ async function menuMesero() {
           break;
         }
         case '5': {
-          const cat = await preguntar('  Categoria (entrada/plato_fuerte/postre/bebida): ');
+          const cat = await preguntar('  Categoria (entrada/plato_fuerte/postre/bebida/todo): ');
           await menuPorCategoria(restId, cat.trim());
           break;
         }
@@ -341,13 +344,6 @@ async function menuMesero() {
           break;
         }
         case '7': {
-          const orden = await obtenerOrden();
-          if (!orden) break;
-          const estado = (await preguntar('  Estado a registrar: ')).trim() || 'en_preparacion';
-          await registrarCambioEstado(orden._id, estado, sesion.usuario._id);
-          break;
-        }
-        case '8': {
           const orden = await obtenerOrden({ estado: { $nin: ['pagado', 'cancelado'] } });
           if (!orden) break;
           // Cambiar estado a cancelado + historial
@@ -398,7 +394,7 @@ async function adminMenuItems() {
     try {
       switch (op) {
         case '1': {
-          const cat = (await preguntar('  Categoria (entrada/plato_fuerte/postre/bebida): ')).trim();
+          const cat = (await preguntar('  Categoria (entrada/plato_fuerte/postre/bebida/todo): ')).trim();
           await menuPorCategoria(restId, cat);
           break;
         }
@@ -502,7 +498,11 @@ async function adminOrdenes() {
         case '2': {
           const orden = await obtenerOrden();
           if (!orden) break;
-          const estado = (await preguntar('  Nuevo estado (pendiente/en_preparacion/servido/pagado/cancelado): ')).trim();
+          const estado = (await preguntar('  Nuevo estado (pendiente/en_preparacion/servido): ')).trim();
+          if (['pagado', 'cancelado'].includes(estado)) {
+            console.log('  Para pagar usa Transacciones > Cerrar pedido. Para cancelar usa la opcion 3.');
+            break;
+          }
           await actualizarEstadoOrden(orden._id, estado, sesion.usuario._id);
           break;
         }
@@ -737,7 +737,11 @@ async function adminArrays() {
       case '2': {
         const orden = await obtenerOrden();
         if (!orden) break;
-        const estado = (await preguntar('  Estado: ')).trim() || 'en_preparacion';
+        const estado = (await preguntar('  Estado (pendiente/en_preparacion/servido): ')).trim() || 'en_preparacion';
+        if (['pagado', 'cancelado'].includes(estado)) {
+          console.log('  Para pagar o cancelar usa las opciones de Transacciones.');
+          break;
+        }
         await registrarCambioEstado(orden._id, estado, sesion.usuario._id);
         break;
       }

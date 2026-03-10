@@ -50,15 +50,21 @@ async function restaurantesCercanos(lat, lng, distanciaMetros = 5000) {
 async function menuPorCategoria(restauranteId, categoria) {
   try {
     const db = getDb();
+    // Si categoria es 'todo' o vacío, no filtrar por categoria
+    const filtro = (categoria && categoria !== 'todo')
+      ? { restaurante_id: restauranteId, categoria, disponible: true }
+      : { restaurante_id: restauranteId, disponible: true };
+
     const resultados = await db.collection('menu_items').find(
-      { restaurante_id: restauranteId, categoria, disponible: true },
+      filtro,
       // Projection de inclusión: solo traer estos 3 campos, excluir _id
       { projection: { nombre: 1, precio: 1, categoria: 1, _id: 0 } }
-    ).sort({ precio: 1 }).toArray();  // ordenar por precio ascendente
+    ).sort({ categoria: 1, precio: 1 }).toArray();  // ordenar por categoria y precio
 
-    console.log(`Menu "${categoria}" (${resultados.length} items):`);
+    const label = (categoria && categoria !== 'todo') ? categoria : 'todo';
+    console.log(`Menu "${label}" (${resultados.length} items):`);
     resultados.forEach(r => {
-      console.log(`  - ${r.nombre}: Q${r.precio}`);
+      console.log(`  - [${r.categoria}] ${r.nombre}: Q${r.precio}`);
     });
     return resultados;
   } catch (err) {
