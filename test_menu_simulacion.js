@@ -141,6 +141,15 @@ async function main() {
   await run('Cliente-2: Ver menu por categoria (plato_fuerte)', async () => {
     const r = await menuPorCategoria(restId, 'plato_fuerte');
     if (!Array.isArray(r)) throw new Error('No retorno array');
+    if (r.some(i => i.categoria !== 'plato_fuerte')) throw new Error('Devolvio items de otra categoria');
+  });
+
+  await run('Cliente-2b: Ver menu — opcion "todo" (todas las categorias)', async () => {
+    const r = await menuPorCategoria(restId, 'todo');
+    if (!Array.isArray(r)) throw new Error('No retorno array');
+    if (r.length === 0) throw new Error('No devolvio items');
+    const categorias = [...new Set(r.map(i => i.categoria))];
+    if (categorias.length < 2) throw new Error('Deberia traer mas de una categoria');
   });
 
   await run('Cliente-3: Buscar platillos full-text "pollo"', async () => {
@@ -197,6 +206,20 @@ async function main() {
     await actualizarEstadoOrden(orden._id, 'en_preparacion', userId);
   });
 
+  await run('Mesero-2b: Actualizar estado — "pagado" bloqueado (debe no cambiar)', async () => {
+    const orden = await obtenerOrdenActiva(db, restId);
+    if (!orden) throw new Error('Sin orden activa');
+    // Simula la validacion del menu: pagado y cancelado estan bloqueados
+    const estado = 'pagado';
+    if (['pagado', 'cancelado'].includes(estado)) {
+      // El menu muestra mensaje y hace break — la orden NO debe cambiar
+      const ordenDespues = await db.collection('ordenes').findOne({ _id: orden._id });
+      if (ordenDespues.estado === 'pagado') throw new Error('El estado cambio a pagado sin pasar por cerrarPedido');
+    } else {
+      throw new Error('La validacion no esta activa');
+    }
+  });
+
   // Mesero-3: Crear pedido (transaccion)
   let ordenMeseroId = null;
   await run('Mesero-3: Crear pedido atomico (orden + ocupar mesa)', async () => {
@@ -215,6 +238,13 @@ async function main() {
   await run('Mesero-5: Ver menu del restaurante (bebida)', async () => {
     const r = await menuPorCategoria(restId, 'bebida');
     if (!Array.isArray(r)) throw new Error('No retorno array');
+  });
+
+  await run('Mesero-5b: Ver menu — opcion "todo"', async () => {
+    const r = await menuPorCategoria(restId, 'todo');
+    if (!Array.isArray(r) || r.length === 0) throw new Error('No devolvio items');
+    const categorias = [...new Set(r.map(i => i.categoria))];
+    if (categorias.length < 2) throw new Error('Deberia traer mas de una categoria');
   });
 
   // Mesero-6: Agregar item a orden existente ($push)
@@ -350,18 +380,39 @@ async function main() {
     await actualizarEstadoOrden(orden._id, 'servido', admin._id);
   });
 
-  await run('Admin-Ordenes-3: Cancelar orden (cancelarOrden)', async () => {
+  await run('Admin-Ordenes-2b: Actualizar estado — "cancelado" bloqueado', async () => {
+    const orden = await obtenerOrdenActiva(db, restId);
+    if (!orden) throw new Error('Sin orden activa');
+    const estado = 'cancelado';
+    if (['pagado', 'cancelado'].includes(estado)) {
+      const ordenDespues = await db.collection('ordenes').findOne({ _id: orden._id });
+      if (ordenDespues.estado === 'cancelado') throw new Error('Estado cambio sin pasar por cancelarOrden');
+    } else {
+      throw new Error('Validacion no activa');
+    }
+  });
+
+  await run('Admin-Ordenes-3: Cancelar orden (cancelarOrden) — verifica que libera mesa', async () => {
     // crear orden temporal
     const mesa = await obtenerMesaDisponible(db, restId);
     if (!mesa) throw new Error('Sin mesas disponibles');
     const platillos = await db.collection('menu_items').find({ restaurante_id: restId, disponible: true }).limit(1).toArray();
     if (!platillos.length) throw new Error('Sin platillos');
+    const numeroMesa = mesa.numero;
     const oid = await crearPedidoAtomico(
-      restId, (cliente || admin)._id, (mesero || admin)._id, mesa.numero,
+      restId, (cliente || admin)._id, (mesero || admin)._id, numeroMesa,
       [{ _id: platillos[0]._id, nombre: platillos[0].nombre, precio: platillos[0].precio, cantidad: 1 }]
     );
     if (!oid) throw new Error('No se pudo crear orden');
+    // Verificar que la mesa quedo ocupada
+    const restAntes = await db.collection('restaurantes').findOne({ _id: restId });
+    const mesaAntes = restAntes.mesas.find(m => m.numero === numeroMesa);
+    if (mesaAntes.disponible) throw new Error('La mesa no quedo ocupada al crear el pedido');
+    // Cancelar y verificar que se libero
     await cancelarOrden(oid);
+    const restDespues = await db.collection('restaurantes').findOne({ _id: restId });
+    const mesaDespues = restDespues.mesas.find(m => m.numero === numeroMesa);
+    if (!mesaDespues.disponible) throw new Error('cancelarOrden NO libero la mesa');
   });
 
   await run('Admin-Ordenes-4: Lookup ordenes con detalle', async () => {
@@ -514,6 +565,18 @@ async function main() {
     const orden = await obtenerOrdenActiva(db, restId);
     if (!orden) throw new Error('Sin orden activa');
     await registrarCambioEstado(orden._id, 'en_preparacion', admin._id);
+  });
+
+  await run('Admin-Arrays-2b: registrarCambioEstado — "pagado" bloqueado', async () => {
+    const orden = await obtenerOrdenActiva(db, restId);
+    if (!orden) throw new Error('Sin orden activa');
+    const estado = 'pagado';
+    if (['pagado', 'cancelado'].includes(estado)) {
+      const ordenDespues = await db.collection('ordenes').findOne({ _id: orden._id });
+      if (ordenDespues.estado === 'pagado') throw new Error('Estado cambio a pagado sin cerrarPedido');
+    } else {
+      throw new Error('Validacion no activa');
+    }
   });
 
   await run('Admin-Arrays-3: $pull quitar tag del restaurante', async () => {

@@ -26,14 +26,10 @@ const preguntar = (msg) => new Promise(res => {
   try { rl.question(msg, res); } catch (err) { res(''); }
 });
 
-// =====================================================
 // SESION — usuario y restaurante actuales
-// =====================================================
 let sesion = { usuario: null, restaurante: null };
 
-// =====================================================
 // LOGIN / REGISTRO
-// =====================================================
 
 async function pantallaLogin() {
   const db = getDb();
@@ -115,9 +111,7 @@ async function pantallaLogin() {
   }
 }
 
-// =====================================================
 // HELPERS
-// =====================================================
 
 // Seleccionar restaurante: admin/mesero usa el suyo, cliente elige
 async function obtenerRestaurante() {
@@ -169,9 +163,7 @@ async function obtenerOrden(filtro = {}) {
   return await db.collection('ordenes').findOne({ _id: ordenes[idx]._id });
 }
 
-// =====================================================
 // MENU CLIENTE
-// =====================================================
 async function menuCliente() {
   const db = getDb();
 
@@ -246,9 +238,7 @@ async function menuCliente() {
   }
 }
 
-// =====================================================
 // MENU MESERO
-// =====================================================
 async function menuMesero() {
   const db = getDb();
   const restId = sesion.restaurante._id;
@@ -371,9 +361,7 @@ async function menuMesero() {
   }
 }
 
-// =====================================================
 // SUBMENUS ADMIN
-// =====================================================
 
 async function adminMenuItems() {
   const db = getDb();
@@ -936,9 +924,7 @@ async function adminResenas() {
   }
 }
 
-// =====================================================
 // MENU ADMIN
-// =====================================================
 async function menuAdmin() {
   while (true) {
     console.log(`\n--- MENU ADMIN — ${sesion.restaurante.nombre} ---`);
@@ -1003,9 +989,7 @@ async function menuAdmin() {
   }
 }
 
-// =====================================================
 // MAIN — Login → Menu segun rol
-// =====================================================
 async function main() {
   await conectar();
 

@@ -14,9 +14,7 @@ const { ObjectId } = require('mongodb');
  *   $limit  → limita la cantidad de resultados
  */
 
-// =====================================================
 // PIPELINE SIMPLE: Conteo de órdenes por estado
-// =====================================================
 
 /**
  * conteoOrdenesPorEstado(restauranteId) — cuenta cuántas órdenes hay en cada estado.
@@ -49,9 +47,7 @@ async function conteoOrdenesPorEstado(restauranteId) {
   }
 }
 
-// =====================================================
 // PIPELINE COMPLEJA 1: Top 5 platillos más vendidos
-// =====================================================
 
 /**
  * top5Platillos() — encuentra los 5 platillos más vendidos del sistema.
@@ -117,9 +113,7 @@ async function top5Platillos() {
   }
 }
 
-// =====================================================
 // PIPELINE COMPLEJA 2: Restaurantes mejor calificados
-// =====================================================
 
 /**
  * restaurantesMejorCalificados() — ranking de restaurantes por calificación promedio.
@@ -180,9 +174,7 @@ async function restaurantesMejorCalificados() {
   }
 }
 
-// =====================================================
 // PIPELINE COMPLEJA 3: Ingresos por restaurante en un período
-// =====================================================
 
 /**
  * ingresosPorPeriodo(fechaInicio, fechaFin) — calcula ingresos de cada restaurante
@@ -252,9 +244,7 @@ async function ingresosPorPeriodo(fechaInicio, fechaFin) {
   }
 }
 
-// =====================================================
 // PIPELINE MAS SIMPLE: Total de ordenes por restaurante
-// =====================================================
 
 /**
  * totalOrdenesPorRestaurante() — cuenta cuántas órdenes tiene cada restaurante.
