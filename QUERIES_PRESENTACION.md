@@ -151,11 +151,11 @@ db.restaurantes.updateOne(
 )
 ```
 
-### 3.4 $push — Agregar item a una orden
+### 3.4 $push + $inc — Agregar item a una orden y actualizar total
 
 ```javascript
 db.ordenes.updateOne(
-  { _id: db.ordenes.findOne({ estado: 'pendiente' })._id },
+  { _id: db.ordenes.findOne({ estado: 'pendiente' })._id, estado: { $nin: ['pagado', 'cancelado'] } },
   {
     $push: {
       items: {
@@ -166,7 +166,8 @@ db.ordenes.updateOne(
         notas: 'agregado en presentacion',
         subtotal: 25
       }
-    }
+    },
+    $inc: { total: 25 }
   }
 )
 ```
@@ -174,6 +175,16 @@ db.ordenes.updateOne(
 ---
 
 ## 4. AGGREGATION PIPELINES
+
+### 4.0 Pipeline MAS SIMPLE (1 etapa) — Total de ordenes por restaurante
+
+```javascript
+db.ordenes.aggregate([
+  { $group: { _id: '$restaurante_id', total: { $sum: 1 } } }
+])
+```
+
+**Que demuestra:** El pipeline mas simple posible. Una sola etapa `$group` que agrupa todos los documentos por restaurante y cuenta cuantos hay en cada grupo. Equivale a `SELECT restaurante_id, COUNT(*) FROM ordenes GROUP BY restaurante_id`.
 
 ### 4.1 Pipeline SIMPLE — Conteo de ordenes por estado
 

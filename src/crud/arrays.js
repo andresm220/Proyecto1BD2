@@ -28,15 +28,20 @@ async function agregarItemAOrden(ordenId, nuevoItem) {
   try {
     const db = getDb();
     // $push agrega el nuevoItem al final del array 'items'
+    // $inc incrementa el total de la orden con el subtotal del nuevo item
+    // Solo permite agregar items si la orden no esta pagada ni cancelada
     const result = await db.collection('ordenes').updateOne(
-      { _id: ordenId },
-      { $push: { items: nuevoItem } }
+      { _id: ordenId, estado: { $nin: ['pagado', 'cancelado'] } },
+      {
+        $push: { items: nuevoItem },
+        $inc: { total: nuevoItem.subtotal }
+      }
     );
 
     if (result.matchedCount === 0) {
-      console.log('No se encontro la orden con ese _id');
+      console.log('No se puede agregar items: la orden no existe o ya esta pagada/cancelada');
     } else {
-      console.log(`Item "${nuevoItem.nombre}" agregado a la orden | $push exitoso`);
+      console.log(`Item "${nuevoItem.nombre}" agregado a la orden | $push + $inc exitoso | subtotal: Q${nuevoItem.subtotal}`);
     }
     return result;
   } catch (err) {
@@ -59,6 +64,9 @@ async function registrarCambioEstado(ordenId, nuevoEstado, usuarioId) {
     const result = await db.collection('ordenes').updateOne(
       { _id: ordenId },
       {
+        // $set actualiza el estado actual de la orden
+        $set: { estado: nuevoEstado, updated_at: new Date() },
+        // $push agrega el cambio al historial para trazabilidad
         $push: {
           historial_estados: {
             estado: nuevoEstado,
@@ -72,7 +80,7 @@ async function registrarCambioEstado(ordenId, nuevoEstado, usuarioId) {
     if (result.matchedCount === 0) {
       console.log('No se encontro la orden con ese _id');
     } else {
-      console.log(`Estado "${nuevoEstado}" registrado en historial | $push exitoso`);
+      console.log(`Estado actualizado a "${nuevoEstado}" + registrado en historial | $set + $push exitoso`);
     }
     return result;
   } catch (err) {

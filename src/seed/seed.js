@@ -212,17 +212,20 @@ function generarMenuItems(restauranteIds) {
 }
 
 /**
- * generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems) — crea 100 órdenes.
+ * generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems, restaurantes) — crea 100 órdenes.
  * Los items se guardan como SNAPSHOT: copiamos nombre y precio al momento del pedido.
  * Cada orden tiene historial_estados embebido para trazabilidad.
+ * Usa las mesas reales del restaurante para asignar numero_mesa.
  */
-function generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems) {
+function generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems, restaurantes) {
   const ordenes = [];
   const estados = ['pendiente', 'en_preparacion', 'servido', 'pagado', 'cancelado'];
 
   for (let i = 0; i < 100; i++) {
     // Elegimos un restaurante aleatorio
-    const restId = faker.helpers.arrayElement(restauranteIds);
+    const restIdx = faker.number.int({ min: 0, max: restauranteIds.length - 1 });
+    const restId = restauranteIds[restIdx];
+    const restData = restaurantes[restIdx];
     // Filtramos los platillos de ESE restaurante
     const menuRest = menuItems.filter(m => m.restaurante_id.equals(restId));
     if (menuRest.length === 0) continue;
@@ -265,7 +268,7 @@ function generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems) {
       restaurante_id: restId,
       usuario_id: faker.helpers.arrayElement(clienteIds),
       mesero_id: meseroOrden,
-      numero_mesa: faker.number.int({ min: 1, max: 6 }),
+      numero_mesa: faker.number.int({ min: 1, max: restData.mesas.length }),
       estado,
       items,
       total,
@@ -374,10 +377,20 @@ async function ejecutarSeed() {
 
     // --- 4. ORDENES (100) ---
     console.log('Insertando 100 ordenes con snapshot de items...');
-    const ordenes = generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems);
+    const ordenes = generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems, restaurantes);
     const resOrdenes = await db.collection('ordenes').insertMany(ordenes);
     const ordenIds = Object.values(resOrdenes.insertedIds);
     console.log(`  -> ${resOrdenes.insertedCount} ordenes insertadas`);
+
+    // Marcar mesas como ocupadas para ordenes activas (no pagadas ni canceladas)
+    const ordenesActivas = ordenes.filter(o => !['pagado', 'cancelado'].includes(o.estado));
+    for (const o of ordenesActivas) {
+      await db.collection('restaurantes').updateOne(
+        { _id: o.restaurante_id, 'mesas.numero': o.numero_mesa },
+        { $set: { 'mesas.$.disponible': false } }
+      );
+    }
+    console.log(`  -> ${ordenesActivas.length} mesas marcadas como ocupadas`);
 
     // --- 5. RESENAS (80) ---
     console.log('Insertando 80 resenas...');

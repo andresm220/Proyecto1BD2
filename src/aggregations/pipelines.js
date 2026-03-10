@@ -252,7 +252,47 @@ async function ingresosPorPeriodo(fechaInicio, fechaFin) {
   }
 }
 
+// =====================================================
+// PIPELINE MAS SIMPLE: Total de ordenes por restaurante
+// =====================================================
+
+/**
+ * totalOrdenesPorRestaurante() — cuenta cuántas órdenes tiene cada restaurante.
+ * Pipeline de una sola etapa: $group
+ * Es el pipeline más simple posible: agrupa todos los documentos por un campo
+ * y cuenta cuántos hay en cada grupo.
+ *
+ * @returns {Array} - [{ _id: ObjectId, total: 25 }, ...]
+ */
+async function totalOrdenesPorRestaurante() {
+  try {
+    const db = getDb();
+    const resultados = await db.collection('ordenes').aggregate([
+      // Una sola etapa: $group agrupa por restaurante_id y cuenta
+      { $group: { _id: '$restaurante_id', total: { $sum: 1 } } }
+    ]).toArray();
+
+    // Traemos los nombres de los restaurantes para mostrar en consola
+    const restaurantes = await db.collection('restaurantes').find(
+      { _id: { $in: resultados.map(r => r._id) } },
+      { projection: { nombre: 1 } }
+    ).toArray();
+    const nombres = {};
+    restaurantes.forEach(r => { nombres[r._id.toString()] = r.nombre; });
+
+    console.log('Total de ordenes por restaurante (pipeline 1 etapa):');
+    resultados.forEach(r => {
+      const nombre = nombres[r._id.toString()] || 'Desconocido';
+      console.log(`  ${nombre}: ${r.total} ordenes`);
+    });
+    return resultados;
+  } catch (err) {
+    return manejarError(err, 'pipeline total ordenes por restaurante') || [];
+  }
+}
+
 module.exports = {
+  totalOrdenesPorRestaurante,
   conteoOrdenesPorEstado,
   top5Platillos,
   restaurantesMejorCalificados,

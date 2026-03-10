@@ -11,7 +11,7 @@ const { actualizarEstadoOrden, deshabilitarCategoriaMenu, actualizarPrecioMenuIt
 const { eliminarMenuItem, eliminarResenasUsuario, cancelarOrden } = require('../crud/delete');
 const { agregarItemAOrden, registrarCambioEstado, quitarTagRestaurante, agregarTagResena, agregarTagRestaurante } = require('../crud/arrays');
 const { projectionMenuSimple, projectionOrdenesSinItems, projectionUsuarioSinPassword } = require('../crud/projections');
-const { conteoOrdenesPorEstado, top5Platillos, restaurantesMejorCalificados, ingresosPorPeriodo } = require('../aggregations/pipelines');
+const { totalOrdenesPorRestaurante, conteoOrdenesPorEstado, top5Platillos, restaurantesMejorCalificados, ingresosPorPeriodo } = require('../aggregations/pipelines');
 const { crearPedidoAtomico } = require('../transactions/crearPedido');
 const { cerrarPedidoAtomico, generarPDFComprobante } = require('../transactions/cerrarPedido');
 const { subirComprobante, descargarComprobante, eliminarComprobante, listarComprobantes } = require('../gridfs/comprobantes');
@@ -180,9 +180,8 @@ async function menuCliente() {
     console.log('  1. Buscar restaurantes cercanos');
     console.log('  2. Ver menu de un restaurante');
     console.log('  3. Buscar platillos (full-text)');
-    console.log('  4. Hacer pedido');
-    console.log('  5. Dejar resena');
-    console.log('  6. Ver mis ordenes');
+    console.log('  4. Dejar resena');
+    console.log('  5. Ver mis ordenes');
     console.log('  0. Cerrar sesion');
 
     const op = (await preguntar('\n  Opcion: ')).trim();
@@ -211,38 +210,6 @@ async function menuCliente() {
         case '4': {
           const rest = await obtenerRestaurante();
           if (!rest) break;
-          // Buscar un mesero de ese restaurante
-          const mesero = await db.collection('usuarios').findOne({ rol: 'mesero', restaurante_id: rest._id });
-          if (!mesero) {
-            // Si no hay mesero asignado, usar cualquiera
-            const anyMesero = await db.collection('usuarios').findOne({ rol: 'mesero' });
-            if (!anyMesero) { console.log('  No hay meseros registrados'); break; }
-          }
-          const meseroId = mesero ? mesero._id : (await db.collection('usuarios').findOne({ rol: 'mesero' }))._id;
-
-          const platillos = await db.collection('menu_items').find({
-            restaurante_id: rest._id, disponible: true
-          }).toArray();
-          if (platillos.length === 0) { console.log('  No hay platillos disponibles'); break; }
-
-          console.log('\n  Platillos disponibles:');
-          platillos.forEach((p, i) => console.log(`    ${i + 1}. ${p.nombre} | Q${p.precio} | ${p.categoria}`));
-          const seleccion = await preguntar('  Numeros separados por coma (ej: 1,3,5): ');
-          const indices = seleccion.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < platillos.length);
-          if (indices.length === 0) { console.log('  Seleccion invalida'); break; }
-
-          const items = indices.map(i => ({
-            _id: platillos[i]._id, nombre: platillos[i].nombre,
-            precio: platillos[i].precio, cantidad: 1
-          }));
-
-          const mesa = parseInt(await preguntar('  Numero de mesa: ')) || 1;
-          await crearOrden(rest._id, sesion.usuario._id, meseroId, mesa, items);
-          break;
-        }
-        case '5': {
-          const rest = await obtenerRestaurante();
-          if (!rest) break;
           const calificacion = parseInt(await preguntar('  Calificacion (1-5): '));
           const comentario = await preguntar('  Comentario: ');
           await crearResena({
@@ -251,7 +218,7 @@ async function menuCliente() {
           });
           break;
         }
-        case '6': {
+        case '5': {
           const misOrdenes = await db.collection('ordenes').aggregate([
             { $match: { usuario_id: sesion.usuario._id } },
             { $lookup: { from: 'restaurantes', localField: 'restaurante_id', foreignField: '_id', as: 'rest' } },
@@ -295,6 +262,7 @@ async function menuMesero() {
     console.log('  5. Ver menu del restaurante');
     console.log('  6. Agregar item a orden existente ($push)');
     console.log('  7. Registrar cambio de estado en historial ($push)');
+    console.log('  8. Cancelar orden (liberar mesa)');
     console.log('  0. Cerrar sesion');
 
     const op = (await preguntar('\n  Opcion: ')).trim();
@@ -314,6 +282,23 @@ async function menuMesero() {
           break;
         }
         case '3': {
+          // Mostrar mesas disponibles
+          const restInfo = await db.collection('restaurantes').findOne({ _id: restId });
+          const mesasDisponibles = restInfo.mesas.filter(m => m.disponible);
+          if (mesasDisponibles.length === 0) {
+            console.log('  No hay mesas disponibles. Cierra un pedido existente o agrega items a una orden activa.');
+            break;
+          }
+          console.log('\n  Mesas disponibles:');
+          mesasDisponibles.forEach(m => console.log(`    Mesa ${m.numero} | capacidad: ${m.capacidad}`));
+
+          const mesa = parseInt(await preguntar('  Numero de mesa: '));
+          const mesaSeleccionada = mesasDisponibles.find(m => m.numero === mesa);
+          if (!mesaSeleccionada) {
+            console.log('  Esa mesa no esta disponible. Usa la opcion 6 para agregar items a una orden existente.');
+            break;
+          }
+
           const cliente = await db.collection('usuarios').findOne({ rol: 'cliente' });
           const platillos = await db.collection('menu_items').find({ restaurante_id: restId, disponible: true }).toArray();
           if (platillos.length === 0) { console.log('  No hay platillos en el menu'); break; }
@@ -322,12 +307,6 @@ async function menuMesero() {
           const seleccion = await preguntar('  Numeros separados por coma (ej: 1,3): ');
           const indices = seleccion.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < platillos.length);
           if (indices.length === 0) { console.log('  Seleccion invalida'); break; }
-          const mesa = parseInt(await preguntar('  Numero de mesa: ')) || 1;
-          // Liberar mesa por si estaba ocupada
-          await db.collection('restaurantes').updateOne(
-            { _id: restId, 'mesas.numero': mesa },
-            { $set: { 'mesas.$.disponible': true } }
-          );
           const items = indices.map(i => ({
             _id: platillos[i]._id, nombre: platillos[i].nombre,
             precio: platillos[i].precio, cantidad: 1
@@ -366,6 +345,25 @@ async function menuMesero() {
           if (!orden) break;
           const estado = (await preguntar('  Estado a registrar: ')).trim() || 'en_preparacion';
           await registrarCambioEstado(orden._id, estado, sesion.usuario._id);
+          break;
+        }
+        case '8': {
+          const orden = await obtenerOrden({ estado: { $nin: ['pagado', 'cancelado'] } });
+          if (!orden) break;
+          // Cambiar estado a cancelado + historial
+          await db.collection('ordenes').updateOne(
+            { _id: orden._id },
+            {
+              $set: { estado: 'cancelado', updated_at: new Date() },
+              $push: { historial_estados: { estado: 'cancelado', timestamp: new Date(), usuario_id: sesion.usuario._id } }
+            }
+          );
+          // Liberar la mesa
+          await db.collection('restaurantes').updateOne(
+            { _id: restId, 'mesas.numero': orden.numero_mesa },
+            { $set: { 'mesas.$.disponible': true } }
+          );
+          console.log(`  Orden cancelada | Mesa ${orden.numero_mesa} liberada`);
           break;
         }
         case '0': return;
@@ -535,6 +533,7 @@ async function adminTransacciones() {
   console.log('\n  --- TRANSACCIONES MULTI-DOCUMENTO ---');
   console.log('  1. Crear pedido atomico (orden + ocupar mesa)');
   console.log('  2. Cerrar pedido atomico (pagar + PDF + liberar mesa)');
+  console.log('  3. Cancelar orden (liberar mesa)');
   console.log('  0. Volver');
 
   const op = (await preguntar('  Opcion: ')).trim();
@@ -542,6 +541,23 @@ async function adminTransacciones() {
   try {
     switch (op) {
       case '1': {
+        // Mostrar mesas disponibles
+        const restInfo = await db.collection('restaurantes').findOne({ _id: restId });
+        const mesasDisponibles = restInfo.mesas.filter(m => m.disponible);
+        if (mesasDisponibles.length === 0) {
+          console.log('  No hay mesas disponibles. Cierra un pedido existente o agrega items a una orden activa.');
+          break;
+        }
+        console.log('\n  Mesas disponibles:');
+        mesasDisponibles.forEach(m => console.log(`    Mesa ${m.numero} | capacidad: ${m.capacidad}`));
+
+        const mesa = parseInt(await preguntar('  Numero de mesa: '));
+        const mesaSeleccionada = mesasDisponibles.find(m => m.numero === mesa);
+        if (!mesaSeleccionada) {
+          console.log('  Esa mesa no esta disponible.');
+          break;
+        }
+
         const cliente = await db.collection('usuarios').findOne({ rol: 'cliente' });
         const mesero = await db.collection('usuarios').findOne({ rol: 'mesero', restaurante_id: restId });
         const platillos = await db.collection('menu_items').find({ restaurante_id: restId, disponible: true }).limit(5).toArray();
@@ -551,11 +567,6 @@ async function adminTransacciones() {
         const seleccion = await preguntar('  Numeros separados por coma: ');
         const indices = seleccion.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < platillos.length);
         if (indices.length === 0) { console.log('  Seleccion invalida'); break; }
-        const mesa = parseInt(await preguntar('  Numero de mesa: ')) || 1;
-        await db.collection('restaurantes').updateOne(
-          { _id: restId, 'mesas.numero': mesa },
-          { $set: { 'mesas.$.disponible': true } }
-        );
         const items = indices.map(i => ({
           _id: platillos[i]._id, nombre: platillos[i].nombre,
           precio: platillos[i].precio, cantidad: 1
@@ -571,6 +582,23 @@ async function adminTransacciones() {
         await cerrarPedidoAtomico(orden._id, metodo);
         break;
       }
+      case '3': {
+        const orden = await obtenerOrden({ estado: { $nin: ['pagado', 'cancelado'] } });
+        if (!orden) break;
+        await db.collection('ordenes').updateOne(
+          { _id: orden._id },
+          {
+            $set: { estado: 'cancelado', updated_at: new Date() },
+            $push: { historial_estados: { estado: 'cancelado', timestamp: new Date(), usuario_id: sesion.usuario._id } }
+          }
+        );
+        await db.collection('restaurantes').updateOne(
+          { _id: restId, 'mesas.numero': orden.numero_mesa },
+          { $set: { 'mesas.$.disponible': true } }
+        );
+        console.log(`  Orden cancelada | Mesa ${orden.numero_mesa} liberada`);
+        break;
+      }
       case '0': return;
     }
   } catch (err) {
@@ -583,27 +611,31 @@ async function adminPipelines() {
   const restId = sesion.restaurante._id;
 
   console.log('\n  --- AGGREGATION PIPELINES ---');
-  console.log('  1. Simple: Conteo de ordenes por estado');
-  console.log('  2. Compleja: Top 5 platillos mas vendidos');
-  console.log('  3. Compleja: Restaurantes mejor calificados');
-  console.log('  4. Compleja: Ingresos por restaurante en periodo');
-  console.log('  5. Ejecutar todos los pipelines');
+  console.log('  1. Simple (1 etapa): Total ordenes por restaurante');
+  console.log('  2. Simple: Conteo de ordenes por estado');
+  console.log('  3. Compleja: Top 5 platillos mas vendidos');
+  console.log('  4. Compleja: Restaurantes mejor calificados');
+  console.log('  5. Compleja: Ingresos por restaurante en periodo');
+  console.log('  6. Ejecutar todos los pipelines');
   console.log('  0. Volver');
 
   const op = (await preguntar('  Opcion: ')).trim();
 
   try {
     switch (op) {
-      case '1': await conteoOrdenesPorEstado(restId); break;
-      case '2': await top5Platillos(); break;
-      case '3': await restaurantesMejorCalificados(); break;
-      case '4': {
+      case '1': await totalOrdenesPorRestaurante(); break;
+      case '2': await conteoOrdenesPorEstado(restId); break;
+      case '3': await top5Platillos(); break;
+      case '4': await restaurantesMejorCalificados(); break;
+      case '5': {
         const inicio = (await preguntar('  Fecha inicio (YYYY-MM-DD, default 2025-12-01): ')).trim() || '2025-12-01';
         const fin = (await preguntar('  Fecha fin (YYYY-MM-DD, default 2026-12-31): ')).trim() || '2026-12-31';
         await ingresosPorPeriodo(inicio, fin);
         break;
       }
-      case '5': {
+      case '6': {
+        await totalOrdenesPorRestaurante();
+        console.log('');
         await conteoOrdenesPorEstado(restId);
         console.log('');
         await top5Platillos();
@@ -915,8 +947,9 @@ async function menuAdmin() {
     console.log('  7.  Projections');
     console.log('  8.  Indices y explain()');
     console.log('  9.  Resenas del restaurante');
-    console.log('  10. Ejecutar Seed (regenerar datos)');
-    console.log('  11. Setup (crear colecciones + indices)');
+    console.log('  10. Crear mesero');
+    console.log('  11. Ejecutar Seed (regenerar datos)');
+    console.log('  12. Setup (crear colecciones + indices)');
     console.log('  0.  Cerrar sesion');
 
     const op = (await preguntar('\n  Opcion: ')).trim();
@@ -933,16 +966,26 @@ async function menuAdmin() {
         case '8': await adminIndices(); break;
         case '9': await adminResenas(); break;
         case '10': {
+          const nombre = (await preguntar('  Nombre del mesero: ')).trim();
+          const email = (await preguntar('  Email: ')).trim();
+          const password = (await preguntar('  Contraseña: ')).trim();
+          await crearUsuario({
+            nombre, email, password,
+            rol: 'mesero',
+            restaurante_id: sesion.restaurante._id
+          });
+          break;
+        }
+        case '11': {
           console.log('\n  Esto borrara todos los datos y los reemplazara con datos de prueba.');
           const confirmar = await preguntar('  Continuar? (s/n): ');
           if (confirmar.trim().toLowerCase() === 's') {
             await ejecutarSeed();
-            // Recargar restaurante de la sesion
             sesion.restaurante = await getDb().collection('restaurantes').findOne({ _id: sesion.restaurante._id });
           }
           break;
         }
-        case '11': {
+        case '12': {
           await crearColecciones();
           await crearIndices();
           break;
