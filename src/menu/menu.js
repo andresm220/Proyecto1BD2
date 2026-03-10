@@ -7,14 +7,15 @@ const bcrypt = require('bcryptjs');
 // Importamos todos los modulos del sistema
 const { crearRestaurante, crearUsuario, crearMenuItem, crearOrden, crearResena } = require('../crud/create');
 const { restaurantesCercanos, menuPorCategoria, ordenesPorRestaurante, buscarPlatillos, lookupOrdenesConDetalle } = require('../crud/read');
-const { actualizarEstadoOrden, deshabilitarCategoriaMenu, actualizarPrecioMenuItem, responderResena } = require('../crud/update');
+const { actualizarEstadoOrden, deshabilitarCategoriaMenu, actualizarPrecioMenuItem, responderResena, bulkActualizarDisponibilidadMenu } = require('../crud/update');
 const { eliminarMenuItem, eliminarResenasUsuario, cancelarOrden } = require('../crud/delete');
 const { agregarItemAOrden, registrarCambioEstado, quitarTagRestaurante, agregarTagResena, agregarTagRestaurante } = require('../crud/arrays');
 const { projectionMenuSimple, projectionOrdenesSinItems, projectionUsuarioSinPassword } = require('../crud/projections');
 const { conteoOrdenesPorEstado, top5Platillos, restaurantesMejorCalificados, ingresosPorPeriodo } = require('../aggregations/pipelines');
 const { crearPedidoAtomico } = require('../transactions/crearPedido');
 const { cerrarPedidoAtomico, generarPDFComprobante } = require('../transactions/cerrarPedido');
-const { subirComprobante, descargarComoBuffer, eliminarComprobante, listarComprobantes } = require('../gridfs/comprobantes');
+const { subirComprobante, descargarComprobante, eliminarComprobante, listarComprobantes } = require('../gridfs/comprobantes');
+const fs = require('fs');
 const { crearColecciones } = require('../collections/createCollections');
 const { crearIndices, validarIndices } = require('../collections/createIndexes');
 const { ejecutarSeed } = require('../seed/seed');
@@ -391,6 +392,7 @@ async function adminMenuItems() {
     console.log('  3. Actualizar precio');
     console.log('  4. Deshabilitar categoria completa');
     console.log('  5. Eliminar item');
+    console.log('  6. Bulk — Cambiar disponibilidad de varios items (bulkWrite)');
     console.log('  0. Volver');
 
     const op = (await preguntar('  Opcion: ')).trim();
@@ -431,6 +433,42 @@ async function adminMenuItems() {
           const idx = parseInt(await preguntar('  Selecciona numero a eliminar: ')) - 1;
           if (idx < 0 || idx >= items.length) break;
           await eliminarMenuItem(items[idx]._id);
+          break;
+        }
+        case '6': {
+          // bulkWrite: permite habilitar y deshabilitar distintos items en una sola operacion
+          const items = await db.collection('menu_items').find({ restaurante_id: restId })
+            .project({ nombre: 1, precio: 1, disponible: 1 }).toArray();
+          if (items.length === 0) { console.log('  No hay items en el menu'); break; }
+
+          console.log('\n  Items del menu (disponible: S=si, N=no):');
+          items.forEach((it, i) => {
+            const disp = it.disponible ? 'S' : 'N';
+            console.log(`    ${i + 1}. [${disp}] ${it.nombre}: Q${it.precio}`);
+          });
+
+          const inputHabilitar = (await preguntar('\n  Numeros a HABILITAR separados por coma (Enter para ninguno): ')).trim();
+          const inputDeshabilitar = (await preguntar('  Numeros a DESHABILITAR separados por coma (Enter para ninguno): ')).trim();
+
+          const parsear = (input) => input
+            ? input.split(',').map(s => parseInt(s.trim()) - 1).filter(i => i >= 0 && i < items.length)
+            : [];
+
+          const idxHabilitar = parsear(inputHabilitar);
+          const idxDeshabilitar = parsear(inputDeshabilitar);
+
+          if (idxHabilitar.length === 0 && idxDeshabilitar.length === 0) {
+            console.log('  No se selecciono ningun item');
+            break;
+          }
+
+          // Construimos el array de cambios con valores distintos por item
+          const cambios = [
+            ...idxHabilitar.map(i => ({ menuItemId: items[i]._id, disponible: true })),
+            ...idxDeshabilitar.map(i => ({ menuItemId: items[i]._id, disponible: false }))
+          ];
+
+          await bulkActualizarDisponibilidadMenu(cambios);
           break;
         }
         case '0': return;
@@ -588,7 +626,7 @@ async function adminGridFS() {
   console.log('\n  --- GRIDFS (Comprobantes PDF) ---');
   console.log('  1. Listar comprobantes en GridFS');
   console.log('  2. Subir PDF de prueba');
-  console.log('  3. Descargar PDF como buffer');
+  console.log('  3. Descargar PDF a disco');
   console.log('  4. Eliminar PDF');
   console.log('  0. Volver');
 
@@ -614,11 +652,12 @@ async function adminGridFS() {
         if (archivos.length === 0) break;
         const idx = parseInt(await preguntar('  Selecciona numero: ')) - 1;
         if (idx < 0 || idx >= archivos.length) break;
-        const buffer = await descargarComoBuffer(archivos[idx]._id);
-        if (buffer) {
-          const esPDF = buffer.toString('utf8', 0, 5) === '%PDF-';
-          console.log('  Es PDF valido:', esPDF ? 'SI' : 'NO');
-        }
+        const archivo = archivos[idx];
+        const carpeta = process.cwd();
+        const rutaSalida = `${carpeta}/${archivo.filename}`;
+        const writeStream = fs.createWriteStream(rutaSalida);
+        await descargarComprobante(archivo._id, writeStream);
+        console.log(`  PDF guardado en: ${rutaSalida}`);
         break;
       }
       case '4': {

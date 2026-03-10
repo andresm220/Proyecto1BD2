@@ -1,12 +1,7 @@
 # Queries para Presentacion — Proyecto 1 BD2
 
-Estos queries se pueden ejecutar directamente en **MongoDB Compass** (pestaña Aggregations o Shell)
-o en **mongosh**. Estan organizados por tema.
+Estos queries se pueden ejecutar directamente en **NoSQLBooster**, **MongoDB Compass** (Shell) o **mongosh**. Estan organizados por tema.
 
-> **NOTA:** Los ObjectId de ejemplo se deben reemplazar por los reales de tu base de datos.
-> Para obtenerlos, usa: `db.restaurantes.findOne()` o `db.usuarios.findOne()`
-
----
 
 ## 1. PROJECTIONS
 
@@ -15,7 +10,7 @@ o en **mongosh**. Estan organizados por tema.
 ```javascript
 db.menu_items.find(
   { disponible: true },
-  { projection: { nombre: 1, precio: 1, categoria: 1, _id: 0 } }
+  { nombre: 1, precio: 1, categoria: 1, _id: 0 }
 ).sort({ precio: 1 })
 ```
 
@@ -26,7 +21,7 @@ db.menu_items.find(
 ```javascript
 db.ordenes.find(
   {},
-  { projection: { numero_mesa: 1, estado: 1, total: 1, created_at: 1 } }
+  { numero_mesa: 1, estado: 1, total: 1, created_at: 1 }
 ).sort({ created_at: -1 }).skip(0).limit(5)
 ```
 
@@ -37,7 +32,7 @@ db.ordenes.find(
 ```javascript
 db.usuarios.find(
   { rol: 'cliente' },
-  { projection: { password_hash: 0 } }
+  { password_hash: 0 }
 ).limit(5)
 ```
 
@@ -68,7 +63,7 @@ db.menu_items.insertOne({
 ```javascript
 db.menu_items.find(
   { $text: { $search: 'pollo' } },
-  { projection: { nombre: 1, precio: 1, score: { $meta: 'textScore' } } }
+  { nombre: 1, precio: 1, score: { $meta: 'textScore' } }
 ).sort({ score: { $meta: 'textScore' } })
 ```
 
@@ -85,7 +80,7 @@ db.restaurantes.find({
       $maxDistance: 5000
     }
   }
-}, { projection: { nombre: 1, direccion: 1, categoria: 1, _id: 0 } })
+}, { nombre: 1, direccion: 1, categoria: 1, _id: 0 })
 ```
 
 **Que demuestra:** Encuentra restaurantes a menos de 5km de Zona 10, ordenados por distancia. Usa el indice 2dsphere.
@@ -409,7 +404,7 @@ db.getCollection('comprobantes.files').find()
 // Ver chunks asociados
 db.getCollection('comprobantes.chunks').find(
   { files_id: db.getCollection('comprobantes.files').findOne()._id },
-  { projection: { data: 0 } }
+  { data: 0 }
 )
 ```
 
@@ -419,12 +414,12 @@ db.getCollection('comprobantes.chunks').find(
 
 ```javascript
 // 1. Ver precio actual de un platillo
-db.menu_items.findOne({ nombre: 'Pepian de Res' }, { projection: { nombre: 1, precio: 1 } })
+db.menu_items.findOne({ nombre: 'Pepian de Res' }, { nombre: 1, precio: 1 })
 
 // 2. Ver que la orden tiene el precio AL MOMENTO DEL PEDIDO
 db.ordenes.findOne(
   { 'items.nombre': 'Pepian de Res' },
-  { projection: { 'items.$': 1, total: 1 } }
+  { 'items.$': 1, total: 1 }
 )
 
 // 3. Cambiar el precio en el menu
@@ -433,7 +428,7 @@ db.menu_items.updateOne({ nombre: 'Pepian de Res' }, { $set: { precio: 999 } })
 // 4. Verificar que la orden NO cambio (sigue con el precio original)
 db.ordenes.findOne(
   { 'items.nombre': 'Pepian de Res' },
-  { projection: { 'items.$': 1, total: 1 } }
+  { 'items.$': 1, total: 1 }
 )
 ```
 

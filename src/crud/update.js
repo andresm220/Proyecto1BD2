@@ -130,9 +130,49 @@ async function responderResena(resenaId, textoRespuesta) {
   }
 }
 
+/**
+ * bulkActualizarDisponibilidadMenu(cambios) — actualiza la disponibilidad de varios
+ * platillos en UNA SOLA operacion de red usando bulkWrite().
+ *
+ * Diferencia clave con updateMany:
+ *   - updateMany aplica el MISMO cambio a todos los documentos que coincidan.
+ *   - bulkWrite permite operaciones DISTINTAS por documento en una sola llamada.
+ *
+ * Caso de uso: el admin habilita algunos platillos y deshabilita otros al mismo tiempo
+ * (por ejemplo, al cambiar el menu del dia) sin hacer multiples roundtrips a MongoDB.
+ *
+ * @param {Array} cambios - [{ menuItemId: ObjectId, disponible: boolean }]
+ *   Cada elemento define una operacion updateOne independiente.
+ * @returns {Object|null} - Resultado del bulkWrite con matchedCount y modifiedCount
+ */
+async function bulkActualizarDisponibilidadMenu(cambios) {
+  try {
+    const db = getDb();
+
+    // Construimos una operacion updateOne por cada cambio
+    // Cada una puede tener un valor de 'disponible' distinto
+    const operaciones = cambios.map(c => ({
+      updateOne: {
+        filter: { _id: c.menuItemId },
+        update: { $set: { disponible: c.disponible, updated_at: new Date() } }
+      }
+    }));
+
+    // bulkWrite envia todas las operaciones en un solo mensaje al servidor
+    const result = await db.collection('menu_items').bulkWrite(operaciones);
+
+    console.log(`bulkWrite completado | ${operaciones.length} operaciones enviadas`);
+    console.log(`  Encontrados: ${result.matchedCount} | Modificados: ${result.modifiedCount}`);
+    return result;
+  } catch (err) {
+    return manejarError(err, 'bulk actualizar disponibilidad menu (bulkWrite)');
+  }
+}
+
 module.exports = {
   actualizarEstadoOrden,
   deshabilitarCategoriaMenu,
   actualizarPrecioMenuItem,
-  responderResena
+  responderResena,
+  bulkActualizarDisponibilidadMenu
 };

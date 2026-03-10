@@ -1,6 +1,10 @@
 // Importamos dotenv para leer el archivo .env con la URI y nombre de la BD
 require('dotenv').config();
+const dns = require('dns');
 const { MongoClient } = require('mongodb');
+
+// Fix para DNS local que no soporta registros SRV (necesario en algunos entornos Windows)
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 // Leemos las variables de entorno
 const uri = process.env.MONGO_URI;
