@@ -220,6 +220,9 @@ function generarMenuItems(restauranteIds) {
 function generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems, restaurantes) {
   const ordenes = [];
   const estados = ['pendiente', 'en_preparacion', 'servido', 'pagado', 'cancelado'];
+  // Trackear mesas ocupadas por restaurante (solo ordenes activas)
+  // key: restIdx, value: Set de numeros de mesa ocupadas
+  const mesasOcupadas = {};
 
   for (let i = 0; i < 100; i++) {
     // Elegimos un restaurante aleatorio
@@ -229,6 +232,26 @@ function generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems, restau
     // Filtramos los platillos de ESE restaurante
     const menuRest = menuItems.filter(m => m.restaurante_id.equals(restId));
     if (menuRest.length === 0) continue;
+
+    const estado = faker.helpers.arrayElement(estados);
+    const esActiva = !['pagado', 'cancelado'].includes(estado);
+
+    // Inicializar set de mesas ocupadas para este restaurante
+    if (!mesasOcupadas[restIdx]) mesasOcupadas[restIdx] = new Set();
+
+    // Elegir mesa: si es orden activa, buscar una mesa libre
+    let numeroMesa;
+    if (esActiva) {
+      const mesasLibres = restData.mesas
+        .map(m => m.numero)
+        .filter(n => !mesasOcupadas[restIdx].has(n));
+      if (mesasLibres.length === 0) continue; // no hay mesas libres, saltar
+      numeroMesa = faker.helpers.arrayElement(mesasLibres);
+      mesasOcupadas[restIdx].add(numeroMesa);
+    } else {
+      // Ordenes pagadas/canceladas pueden usar cualquier mesa (ya no la ocupan)
+      numeroMesa = faker.number.int({ min: 1, max: restData.mesas.length });
+    }
 
     // Elegimos entre 1 y 4 platillos para esta orden
     const itemsElegidos = faker.helpers.arrayElements(menuRest, { min: 1, max: 4 });
@@ -248,7 +271,6 @@ function generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems, restau
     });
 
     const total = items.reduce((sum, it) => sum + it.subtotal, 0);
-    const estado = faker.helpers.arrayElement(estados);
 
     // Generamos historial de estados embebido
     // Simula el ciclo de vida: pendiente -> en_preparacion -> servido -> pagado
@@ -268,7 +290,7 @@ function generarOrdenes(restauranteIds, clienteIds, meseroIds, menuItems, restau
       restaurante_id: restId,
       usuario_id: faker.helpers.arrayElement(clienteIds),
       mesero_id: meseroOrden,
-      numero_mesa: faker.number.int({ min: 1, max: restData.mesas.length }),
+      numero_mesa: numeroMesa,
       estado,
       items,
       total,
